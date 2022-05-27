@@ -1,0 +1,20 @@
+# idea
+.idea
+
+# macOS
+**/.DS_Store
+
+# Dev build
+build/
+tmp/
+
+# Test
+*.out
+
+# Environment variables
+.env
+
+# pid
+
+# bin
+bin
