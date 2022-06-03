@@ -7,4 +7,5 @@ require (
 	github.com/go-redis/redis v6.15.9+incompatible // indirect
 	github.com/kelseyhightower/envconfig v1.4.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
+	gopkg.in/tylerb/graceful.v1 v1.2.15 // indirect
 )

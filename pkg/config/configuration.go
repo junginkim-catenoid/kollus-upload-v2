@@ -69,6 +69,13 @@ type Configuration struct {
 func init() {
 	println("configuration init")
 
+	if os.Getenv("KUS_UPLOAD_HOST") == "" {
+		os.Setenv("KUS_UPLOAD_HOST", "127.0.0.1")
+	}
+	if os.Getenv("KUS_UPLOAD_PORT") == "" {
+		os.Setenv("KUS_UPLOAD_PORT", "3001")
+	}
+
 	if os.Getenv("KUS_LOG_PATH") == "" {
 		os.Setenv("KUS_LOG_PATH", "/home/kollus/kollus-upload-v2/log")
 	}
@@ -90,16 +97,15 @@ func init() {
 		os.Setenv("KUS_REDIS_SENTINEL_PORT", "5000")
 		os.Setenv("KUS_REDIS_SENTINEL_HOST", "127.0.0.1")
 
-		//
-		//os.Setenv("KUS_DUP_API", "http://api.kr.dev.kollus.com/0/media/content_provider?access_token=")
-		//os.Setenv("KUS_PROFILE_API", "http://api.kr.dev.kollus.com/0/media/media_profile?access_token=")
-		//os.Setenv("KUS_PRE_H_API", "http://api.kr.dev.kollus.com/0/media_auth/upload/begin_upload.json?access_token=dqgpfk4vioq7ztfm")
-		//os.Setenv("KUS_END_H_API", "http://api.kr.dev.kollus.com/0/media_auth/upload/complete_upload.json?access_token=dqgpfk4vioq7ztfm")
-		//os.Setenv("KUS_CREATE_H_API", "http://api.kr.dev.kollus.com/0/media_auth/upload/create_url_from_kus")
-		//os.Setenv("KUS_GET_ACCESS_TOKEN_API", "http://api.kr.dev.kollus.com/0/media/content_provider?access_token=")
-		//os.Setenv("KUS_SERVICE_DOMAIN", "api.kr.dev.kollus.com")
-		//os.Setenv("KUS_OAUTH_CATEGORY_API", "http://api.kr.dev.kollus.com/api/v1/vod/upload/categories")
-		//os.Setenv("KUS_OAUTH_TOKEN_API", "http://api.kr.dev.kollus.com/oauth/token")
+		os.Setenv("KUS_DUP_API", "http://api.kr.dev.kollus.com/0/media/content_provider?access_token=")
+		os.Setenv("KUS_PROFILE_API", "http://api.kr.dev.kollus.com/0/media/media_profile?access_token=")
+		os.Setenv("KUS_PRE_H_API", "http://api.kr.dev.kollus.com/0/media_auth/upload/begin_upload.json?access_token=dqgpfk4vioq7ztfm")
+		os.Setenv("KUS_END_H_API", "http://api.kr.dev.kollus.com/0/media_auth/upload/complete_upload.json?access_token=dqgpfk4vioq7ztfm")
+		os.Setenv("KUS_CREATE_H_API", "http://api.kr.dev.kollus.com/0/media_auth/upload/create_url_from_kus")
+		os.Setenv("KUS_GET_ACCESS_TOKEN_API", "http://api.kr.dev.kollus.com/0/media/content_provider?access_token=")
+		os.Setenv("KUS_SERVICE_DOMAIN", "api.kr.dev.kollus.com")
+		os.Setenv("KUS_OAUTH_CATEGORY_API", "http://api.kr.dev.kollus.com/api/v1/vod/upload/categories")
+		os.Setenv("KUS_OAUTH_TOKEN_API", "http://api.kr.dev.kollus.com/oauth/token")
 	}
 
 	//if os.Getenv("KUS_UPLOAD_HOST") == "" {
@@ -150,12 +156,13 @@ func init() {
 	//	os.Setenv("KUS_UPLOAD_PUBLIC_IP", "127.0.0.1")
 	//}
 	//
-	//// trusted_proxies
-	//if os.Getenv("KUS_TRUSTED_PROXIES") == "" {
-	//	//upload-stage-kr.kollus.com
-	//	//127.0.0.1
-	//	os.Setenv("KUS_TRUSTED_PROXIES", "10.42.0.0-10.42.255.255")
-	//}
+	// trusted_proxies
+	if os.Getenv("KUS_TRUSTED_PROXIES") == "" {
+		//upload-stage-kr.kollus.com
+		//127.0.0.1
+		os.Setenv("KUS_TRUSTED_PROXIES", "127.0.0.1-127.0.0.1")
+		//os.Setenv("KUS_TRUSTED_PROXIES", "10.42.0.0-10.42.255.255")
+	}
 	//
 	////if os.Getenv("KUS_CONTENTS_PATH") == "" {
 	//os.Setenv("KUS_CONTENTS_PATH", "/tmp")

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"io/ioutil"
 	"log"
@@ -119,6 +120,8 @@ func (up *UploadHandler) kollusAPIRequest(url string, data url.Values) error {
 		return errors.New(", Not found api")
 	}
 	contents, err := ioutil.ReadAll(resp.Body)
+
+	fmt.Println(string(contents))
 
 	obj := &kollusMessage{}
 	dec := json.NewDecoder(bytes.NewReader(contents))

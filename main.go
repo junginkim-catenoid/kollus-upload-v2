@@ -3,10 +3,13 @@ package main
 import (
 	"flag"
 	"fmt"
+	"gopkg.in/tylerb/graceful.v1"
 	"kollus-upload-v2/cors"
 	"kollus-upload-v2/handles"
 	"kollus-upload-v2/pkg/config"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"runtime"
 	"strconv"
@@ -152,7 +155,33 @@ func startServer(conf *config.Configuration) error {
 	{
 		v1.Use(cors.CorsheaderMiddleware(cors.Options{}))
 		v1.POST("/create_url", handler.CreateKollusOneTimeURL)
+		v1.POST("/CreateUploadSession/:expTime/:uploadType", handler.CreateUploadSession)
 	}
+
+	gMux.StaticFile("/crossdomain.xml", KUS_STATICFILES_PATH+"/crossdomain.xml")
+	gMux.StaticFS("/example", http.Dir(os.Getenv("GOPATH")+"/src/github.com/catenoid-company/kollus-upload/example"))
+	log.Println("[INFO] GOPATH       : "+os.Getenv("GOPATH"), time.Now().Format(" [2006/01/02-15:04:05]"))
+	log.Println("[INFO] Static page  : "+http.Dir(os.Getenv("GOPATH")+"/src/github.com/catenoid-company/kollus-upload/example"), time.Now().Format(" [2006/01/02-15:04:05]"))
+	//clear session
+	quit := make(chan bool)
+
+	defer func() {
+		quit <- true
+		close(quit)
+		log.Println("[INFO] BYE KOLLUS_UPLOAD", time.Now().Format(" [2006/01/02-15:04:05]"))
+	}()
+
+	srv := &graceful.Server{
+		Timeout: 0,
+		ConnState: func(conn net.Conn, state http.ConnState) {
+		},
+		Server: &http.Server{
+			Addr:    conf.UploadHost + ":" + conf.UploadPort,
+			Handler: gMux,
+		},
+	}
+
+	srv.ListenAndServe()
 
 	return nil
 }
