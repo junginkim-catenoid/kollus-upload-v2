@@ -84,6 +84,13 @@ func init() {
 		os.Setenv("KUS_PRODUCTION_MODE", "debug")
 	}
 
+	if os.Getenv("KUS_TEMPDIR_SCAN_MIN") == "" {
+		os.Setenv("KUS_TEMPDIR_SCAN_MIN", "30")
+	}
+	if os.Getenv("KUS_TEMPDIR_REMOVE_HOUR") == "" {
+		os.Setenv("KUS_TEMPDIR_REMOVE_HOUR", "1")
+	}
+
 	if os.Getenv("KUS_PRODUCTION_MODE") == "debug" {
 		println("KUS_PRODUCTION_MODE : DEBUG")
 		os.Setenv("KUS_PROCESS_UID", strconv.Itoa(os.Getuid()))
@@ -138,12 +145,6 @@ func init() {
 	//}
 	//if os.Getenv("KUS_REDIS_POOL_SIZE") == "" {
 	//	os.Setenv("KUS_REDIS_POOL_SIZE", "100")
-	//}
-	//if os.Getenv("KUS_TEMPDIR_SCAN_MIN") == "" {
-	//	os.Setenv("KUS_TEMPDIR_SCAN_MIN", "30")
-	//}
-	//if os.Getenv("KUS_TEMPDIR_REMOVE_HOUR") == "" {
-	//	os.Setenv("KUS_TEMPDIR_REMOVE_HOUR", "24")
 	//}
 	//if os.Getenv("KUS_SERVICE_DOMAIN") == "" {
 	//	//upload-stage-kr.kollus.com

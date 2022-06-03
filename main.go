@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"gopkg.in/tylerb/graceful.v1"
+	"io/ioutil"
 	"kollus-upload-v2/cors"
 	"kollus-upload-v2/handles"
 	"kollus-upload-v2/pkg/config"
@@ -11,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"runtime"
 	"strconv"
 	"time"
@@ -162,8 +164,14 @@ func startServer(conf *config.Configuration) error {
 	gMux.StaticFS("/example", http.Dir(os.Getenv("GOPATH")+"/src/github.com/catenoid-company/kollus-upload/example"))
 	log.Println("[INFO] GOPATH       : "+os.Getenv("GOPATH"), time.Now().Format(" [2006/01/02-15:04:05]"))
 	log.Println("[INFO] Static page  : "+http.Dir(os.Getenv("GOPATH")+"/src/github.com/catenoid-company/kollus-upload/example"), time.Now().Format(" [2006/01/02-15:04:05]"))
+
 	//clear session
 	quit := make(chan bool)
+
+	//go checkSession(quit,handler)
+	go removeTemproraryDirectories(quit, conf.KUS_TEMPDIR_SCAN_MIN, conf.KUS_TEMPDIR_REMOVE_HOUR)
+
+	log.Println("[INFO] KUS-conf Upload port  : "+conf.UploadPort, time.Now().Format(" [2006/01/02-15:04:05]"))
 
 	defer func() {
 		quit <- true
@@ -184,4 +192,63 @@ func startServer(conf *config.Configuration) error {
 	srv.ListenAndServe()
 
 	return nil
+}
+
+/// linux '/tmp' 에 있는 경과된 파일을 삭제 합니다.
+/// 삭제할 directory는 /tmp/KUS*  로 시작 됩니다.
+/// 30분에 한번씩 24시간 이상 경과한 파일에 대하여 삭제
+func removeTemproraryDirectories(quit chan bool, KUS_TEMPDIR_SCAN_MIN int, KUS_TEMPDIR_REMOVE_HOUR int) {
+
+	scantime := KUS_TEMPDIR_SCAN_MIN
+	if scantime < 1 {
+		scantime = 1
+		log.Println("[INFO] scantime ", scantime, time.Now().Format(" [2006/01/02-15:04:05]"))
+	}
+
+	tick := time.Tick(time.Duration(scantime) * time.Minute)
+	log.Println("[INFO] Begins checking the temprorary directory", time.Now().Format(" [2006/01/02-15:04:05]"))
+	for {
+		select {
+		case <-tick:
+			dirname := "/tmp/.working"
+			log.Println("[INFO] Check", dirname, time.Now().Format(" [2006/01/02-15:04:05]"))
+			list, err := ioutil.ReadDir(dirname)
+			if err != nil {
+				log.Println("[ERROR] ReadDir %s: error expected, none found", dirname, time.Now().Format(" [2006/01/02-15:04:05]"))
+			}
+			for _, dir := range list {
+
+				log.Println("IsDir : ", dir.IsDir())
+				log.Println("dir.Name : ", len(dir.Name()))
+				log.Println("dir.Name : ", dir.Name())
+				log.Println("dir.Name[0:3] : ", string([]rune(dir.Name())[0:3]))
+
+				switch {
+				case dir.IsDir() && len(dir.Name()) > 3 && string([]rune(dir.Name())[0:3]) == "KUS":
+					//log.Println(string([]rune(dir.Name())[0:3]));
+					end := time.Now()
+					latency := end.Sub(dir.ModTime())
+
+					//env := os.Getenv("KUS_TEMPDIR_REMOVE_HOUR");
+					frequencyHour := KUS_TEMPDIR_REMOVE_HOUR
+					if KUS_TEMPDIR_REMOVE_HOUR < 1 {
+						frequencyHour = 24
+						log.Println("[INFO] frequencyHour ", frequencyHour, time.Now().Format(" [2006/01/02-15:04:05]"))
+					}
+					//log.Println(frequencyHour)
+					if int(latency.Hours()) > frequencyHour {
+						//if int(latency.Minutes()) > frequencyHour {
+						if err = os.RemoveAll(path.Join(dirname, dir.Name())); err != nil {
+							log.Println("[ERROR] file removing error", err.Error(), dir.Name(), time.Now().Format(" [2006/01/02-15:04:05]"))
+						}
+						log.Println("[INFO] Removed temprorary directory in ", path.Join(dirname, dir.Name()), frequencyHour, time.Now().Format(" [2006/01/02-15:04:05]"))
+					}
+					break
+				}
+			}
+		case <-quit:
+			log.Println("[INFO] Quit removeTemproraryFiles", time.Now().Format(" [2006/01/02-15:04:05]"))
+			return
+		}
+	}
 }
