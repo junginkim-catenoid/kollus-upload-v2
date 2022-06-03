@@ -158,6 +158,7 @@ func startServer(conf *config.Configuration) error {
 		v1.Use(cors.CorsheaderMiddleware(cors.Options{}))
 		v1.POST("/create_url", handler.CreateKollusOneTimeURL)
 		v1.POST("/CreateUploadSession/:expTime/:uploadType", handler.CreateUploadSession)
+		v1.POST("/UploadMultiParts/:upload_key/:user1", handler.UploadMultiParts)
 	}
 
 	gMux.StaticFile("/crossdomain.xml", KUS_STATICFILES_PATH+"/crossdomain.xml")

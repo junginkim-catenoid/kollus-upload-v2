@@ -3,9 +3,13 @@ module kollus-upload-v2
 go 1.16
 
 require (
-	github.com/gin-gonic/gin v1.7.7 // indirect
-	github.com/go-redis/redis v6.15.9+incompatible // indirect
-	github.com/kelseyhightower/envconfig v1.4.0 // indirect
-	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
-	gopkg.in/tylerb/graceful.v1 v1.2.15 // indirect
+	github.com/BurntSushi/toml v1.1.0 // indirect
+	github.com/gin-gonic/gin v1.7.7
+	github.com/go-redis/redis v6.15.9+incompatible
+	github.com/kelseyhightower/envconfig v1.4.0
+	github.com/onsi/ginkgo v1.16.5 // indirect
+	github.com/onsi/gomega v1.19.0 // indirect
+	golang.org/x/text v0.3.7
+	gopkg.in/natefinch/lumberjack.v2 v2.0.0
+	gopkg.in/tylerb/graceful.v1 v1.2.15
 )

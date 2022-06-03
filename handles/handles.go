@@ -1,18 +1,24 @@
 package handles
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis"
+	"io"
+	"io/ioutil"
 	"kollus-upload-v2/assembler"
 	"kollus-upload-v2/hash"
 	"kollus-upload-v2/pkg/config"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -30,6 +36,46 @@ type UploadHandler struct {
 	desiredPath      string
 	accessToken      string
 	fileAssembler    *assembler.FileAssembler
+}
+
+type CtxResponseWebHook struct {
+	name                  string
+	namePrehook           string
+	preHookHttpStatusCode int
+	preHookError          error
+	desiredPath           string
+	desiredFileName       string
+	upload_result         string
+	last_message          string
+	///
+	/// KUS, session key
+	///
+	upload_key string
+	// encryption_key string
+	/// start time
+	preHookStartTime time.Time
+	/// file inforamtion
+	file_name string
+	file_size int64
+	fine_info string
+	///
+	formHiddenValues map[string]string
+	/// 임시 컨텐츠 디렉토리 파일
+	temprorary_directory string
+	/// Process validation of simple multifileUploading such as longterm porcess.
+	multipartuploadProcess int
+
+	// Profile_key 일반업로드시 사용하기위해 추가
+	profile_key string
+}
+
+type UploadOptions struct {
+	profileKey    string `default:""`
+	encryptionKey string `default:""`
+	categoryKey   string `default:""`
+	desiredPath   string `default:""`
+	trProfileKeys string `default:""`
+	uploadFileKey string `default:""`
 }
 
 const (
@@ -365,4 +411,436 @@ func randStr(strSize int) string {
 		bytes[k] = dictionary[v%byte(len(dictionary))]
 	}
 	return string(bytes)
+}
+
+// UploadMultiParts 파일을 업로드 합니다.
+//UploadMultiParts -> UploadMultiPartsFileCopy
+//defer endWebHook
+func (up *UploadHandler) UploadMultiParts(c *gin.Context) {
+
+	log.Println("[INFO][STEP(4-0/13)]", time.Now().Format(" [2006/01/02-15:04:05]"))
+	req := c.Request
+
+	///
+	/// END hook process
+	//var ctxResponseWebHook *CtxResponseWebHook;
+	//마지막 훅이 호출 될때까지의 context 입니다.
+	ctxResponseWebHook := CtxResponseWebHook{"", "", 200, nil, "", "", "1", "", "", time.Now(), "", 0, "", make(map[string]string), "", 0, ""}
+
+	upload_key := c.Param("upload_key")
+	encryption_key := c.Param("encryption_key")
+	profileKey := c.Param("profile_key")
+
+	log.Println("[INFO][STEP(4/13)] ["+upload_key+"] UploadMultiParts, file-key ", upload_key, c.Param("user1"), encryption_key, req, time.Now().Format(" [2006/01/02-15:04:05]"))
+	if 0 == len(upload_key) {
+		log.Println("[ERROR] ["+upload_key+"] Bad request,at the UploadMultiParts ", upload_key, time.Now().Format(" [2006/01/02-15:04:05]"))
+		ctxResponseWebHook.preHookError = c.Error(errors.New("invalied key name , 'upload_key' "))
+		//c.JSON(http.StatusNotFound,gin.H{ "upload_key": "nil","desc":"invalied key name","status": http.StatusNotFound})
+		return
+	}
+
+	defer up.endWebHook(c, &ctxResponseWebHook, "")
+
+	ctxResponseWebHook.upload_key = upload_key
+	if exist, errRedis := up.redisClient.Exists(upload_key).Result(); exist != 1 || errRedis != nil {
+		redisRes, errr := up.redisClient.TTL(upload_key).Result()
+		log.Println("[INFO] ["+upload_key+"] TTL ", redisRes, errr, time.Now().Format(" [2006/01/02-15:04:05]"))
+		log.Println("[INFO] ["+upload_key+"] User tried connection with an invalid upload_key, check your redis server which has the key as : ", upload_key, exist, errRedis, time.Now().Format(" [2006/01/02-15:04:05]"))
+		log.Println("[ERROR] ["+upload_key+"] The upload_key has already been uploaded or does not exist. ", upload_key, time.Now().Format(" [2006/01/02-15:04:05]"))
+		ctxResponseWebHook.preHookError = c.Error(errors.New("[WARN] OK, User tried connection with an invalid upload_key"))
+		return
+	}
+
+	_, err := up.redisClient.HMGet(upload_key, "d", "u").Result()
+	if err != nil {
+		log.Println("[ERROR] ["+upload_key+"] invalid key-name with the HMGET commands : ", upload_key, err, time.Now().Format(" [2006/01/02-15:04:05]"))
+		ctxResponseWebHook.preHookError = c.Error(errors.New("Invalid key-name with the HMGET commands."))
+		//c.JSON(http.StatusNotFound,gin.H{ "upload_key": "nil","desc":"invalied key name","status": http.StatusNotFound})
+		return
+	}
+	length := req.ContentLength
+	if length <= 0 {
+		log.Println("[ERROR] ["+upload_key+"] Bad request,at the UploadMultiParts", time.Now().Format(" [2006/01/02-15:04:05]"))
+		ctxResponseWebHook.preHookError = c.Error(errors.New("File contentes lenght 0 or negative"))
+		//c.String(http.StatusInternalServerError,FMT_ERROR0,"true","Bad request","n","null","0");
+		return
+	}
+
+	mr, err := req.MultipartReader()
+	if err != nil {
+		log.Println("[ERROR] ["+upload_key+"] "+err.Error(), upload_key, time.Now().Format(" [2006/01/02-15:04:05]"))
+		ctxResponseWebHook.preHookError = c.Error(err)
+		return
+	}
+
+	var CountOfMultipartsFiles uint32 = 0
+
+	// uploadOptions을 struct에 정의
+	uploadOptions := &UploadOptions{
+		profileKey:    profileKey,
+		encryptionKey: encryption_key,
+		categoryKey:   "",
+		desiredPath:   "",
+		trProfileKeys: "",
+		uploadFileKey: c.Param("user1"),
+	}
+
+	for {
+		part, err := mr.NextPart()
+
+		// 그외 에러 처리 루틴 추가(2018. 09. 13 kw.cho)
+		if err == io.EOF || err != nil {
+			//log.Println("[DEBUG] exit part");
+			if nil != part {
+				part.Close()
+			}
+			if err != io.EOF {
+				log.Println("[ERROR] ["+upload_key+"] UploadMultiParts NextPart "+err.Error(), time.Now().Format(" [2006/01/02-15:04:05]"))
+			}
+			break
+		}
+
+		//issue #55
+		if part != nil && part.FormName() == "accept" {
+			buf := new(bytes.Buffer)
+			buf.ReadFrom(part)
+			log.Println("[INFO] ["+upload_key+"] accept is: ", buf.String(), time.Now().Format(" [2006/01/02-15:04:05]"))
+			ctxResponseWebHook.formHiddenValues["accept"] = buf.String()
+		}
+
+		if part != nil && part.FormName() == "return_url" {
+			buf := new(bytes.Buffer)
+			buf.ReadFrom(part)
+			log.Println("[INFO] ["+upload_key+"] return_url is: ", buf.String(), time.Now().Format(" [2006/01/02-15:04:05]"))
+			ctxResponseWebHook.formHiddenValues["return_url"] = buf.String()
+		}
+
+		if part != nil && part.FormName() == "disable_alert" {
+			buf := new(bytes.Buffer)
+			buf.ReadFrom(part)
+			log.Println("[INFO] ["+upload_key+"] disable_alert is: ", buf.String(), time.Now().Format(" [2006/01/02-15:04:05]"))
+			ctxResponseWebHook.formHiddenValues["disable_alert"] = buf.String()
+		}
+
+		if part != nil && part.FormName() == "redirection_scope" {
+			buf := new(bytes.Buffer)
+			buf.ReadFrom(part)
+			log.Println("[INFO] ["+upload_key+"] redirection_scope is: ", buf.String(), time.Now().Format(" [2006/01/02-15:04:05]"))
+			ctxResponseWebHook.formHiddenValues["redirection_scope"] = buf.String()
+		}
+		/// Kollus 에서 file field 네임을 upload-file 로 fix 함.
+		/// Form 영역에서 upload-file은 한번만 처리함. "CountOfMultipartsFiles have to be 0"
+		// issue #51
+		if part != nil && len(part.FileName()) > 0 && FORM_FILE_NAME == part.FormName() && 0 == CountOfMultipartsFiles {
+
+			err := up.UploadMultiPartsFileCopy(
+				req.ContentLength, part,
+				&ctxResponseWebHook, c,
+				up.webHook.ContentsPath, uploadOptions,
+				false)
+
+			if err != nil && err.Error() != "EOF" {
+				ctxResponseWebHook.multipartuploadProcess = PORCESS_SIMPLE_MULTIPART_FILE_CP_ERROR
+				ctxResponseWebHook.last_message = err.Error()
+				//issue #55
+				//return
+			}
+			CountOfMultipartsFiles++
+			ctxResponseWebHook.multipartuploadProcess = PORCESS_SIMPLE_MULTIPART_FINISHED_REST
+		}
+
+	} //multi part block
+}
+
+func (up *UploadHandler) preWebHook(c *gin.Context, ctxResponseWebHook *CtxResponseWebHook) error {
+	if ctxResponseWebHook == nil {
+		return c.Error(errors.New("Ctx ResponseWebhook is nil "))
+	}
+
+	if true == up.webHook.PreHookEnable {
+		upload_file_key := c.Param("user1")
+		urlStr := up.webHook.PreHookAPI
+		urlStr = strings.TrimSpace(urlStr)
+		data := url.Values{}
+
+		if "" == upload_file_key || "" == ctxResponseWebHook.file_name {
+			return c.Error(errors.New("lack of parameters,c.Param(user1),file_name"))
+		}
+		c.Request.ParseForm()
+		// 추가 전달 되는 값
+		data.Set("upload_file_key", upload_file_key)
+		data.Add("category_key", up.categoryKey)
+		data.Add("uploaded_filename", ctxResponseWebHook.file_name)
+		data.Add("return_url", c.Request.FormValue("return_url"))
+		data.Add("disable_alert", c.Request.FormValue("disable_alert"))
+		data.Add("redirection_scope", c.Request.FormValue("redirection_scope"))
+		data.Add("profile_key", ctxResponseWebHook.profile_key)
+
+		log.Println("[DEBUG][STEP(6/13)]", "Normarl Upload Uri  :   ", urlStr, "\nNormal Upload Parameters  :  ", data)
+
+		resp, err := http.PostForm(urlStr, data)
+		if err != nil {
+			log.Println("[ERROR] ["+c.Param("upload_key")+"] pre Hooking after postForm,"+err.Error()+" ", c.Param("upload_key"), time.Now().Format(" [2006/01/02-15:04:05]"))
+			c.Error(errors.New("pre Hooking after postForm," + err.Error()))
+			return err
+		}
+		defer resp.Body.Close()
+		contents, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return c.Error(errors.New("pre Hooking," + err.Error()))
+		}
+
+		obj := preHookMessage{}
+		if err := json.Unmarshal(contents, &obj); err != nil {
+			log.Println("[ERROR] ["+c.Param("upload_key")+"] pre Hooking, which was unable to parse JSON format,"+err.Error()+" "+string(contents)+" ", c.Param("upload_key"), time.Now().Format(" [2006/01/02-15:04:05]"))
+			return c.Error(errors.New("pre Hooking, which was unable to parse JSON format," + err.Error() + " " + string(contents)))
+		}
+
+		if "" != obj.Result.Target && "" != obj.Result.Local.Path && "" != obj.Result.Local.Filename {
+			ctxResponseWebHook.desiredPath = obj.Result.Local.Path
+			up.desiredPath = obj.Result.Local.Path
+			ctxResponseWebHook.desiredFileName = obj.Result.Local.Filename
+
+		} else {
+			log.Println("[ERROR] ["+c.Param("upload_key")+"] pre Hooking, which was unable to parse JSON format, target, path , filename"+" ", c.Param("upload_key"), time.Now().Format(" [2006/01/02-15:04:05]"))
+			return c.Error(errors.New("pre Hooking, which was unable to parse JSON format, target, path , filename " + string(contents)))
+		}
+
+		///
+		/// end preWebHookend preWebHook
+		///
+		log.Println("[DEBUG][STEP(6/13)] ["+c.Param("upload_key")+"] Prehook-response"+string(contents)+" ", c.Param("upload_key"), time.Now().Format(" [2006/01/02-15:04:05]"))
+		ctxResponseWebHook.preHookHttpStatusCode = resp.StatusCode
+		if resp.StatusCode != 200 {
+			log.Println("[DEBUG] ["+c.Param("upload_key")+"] "+string(resp.StatusCode)+" ", c.Param("upload_key")+" ", c.Param("upload_key"), time.Now().Format(" [2006/01/02-15:04:05]"))
+			return c.Error(errors.New("StatusCode was not 200"))
+		}
+	} else {
+		c.Error(errors.New("[INFO] [" + c.Param("upload_key") + "] no prehook job"))
+	}
+
+	return nil
+}
+
+func (up *UploadHandler) endWebHook(c *gin.Context, responseHook *CtxResponseWebHook, desiredPath string) {
+	log.Println("[DEBUG][STEP(13/13)] ["+c.Param("upload_key")+"] start EndHook", time.Now().Format(" [2006/01/02-15:04:05]"))
+	if nil == responseHook {
+		log.Println("[ERROR] ["+c.Param("upload_key")+"] pre hook nil pointer ", time.Now().Format(" [2006/01/02-15:04:05]"))
+		c.Error(errors.New("pre hook nil pointer "))
+		return
+	}
+
+	/// last logging
+	defer func() {
+		errorType := "INFO"
+		clientIP := c.ClientIP()
+		if 1 == strings.Count(c.ClientIP(), ":") {
+			clientIP = strings.Split(c.ClientIP(), ":")[0]
+		}
+
+		clientType := c.ContentType()
+		method := c.Request.Method
+		uploadResult := "OK"
+		comment := " "
+		if responseHook.preHookError != nil {
+			uploadResult = "FAILED"
+			errorType = "ERROR"
+			comment = c.Errors.ByType(gin.ErrorTypeAny).String()
+			//ctxResponseWebHook.preHookError = c.Error(errors.New("invalied key name , 'upload_key' "))
+			//c.Writer.WriteHeader(http.StatusBadRequest)
+		}
+
+		/// Checking abnormal disconnection, requests and so on.
+		if responseHook.multipartuploadProcess < PORCESS_SIMPLE_MULTIPART_BEGINES {
+			uploadResult = "INVALID_REQUESTS"
+			errorType = "WARN"
+			comment = comment + " : invalid requests " + strconv.Itoa(responseHook.multipartuploadProcess) + " "
+			responseHook.preHookError = c.Error(errors.New("INVALID_REQUESTS"))
+			/// result 에 대해 해더를 변경함.
+			//c.Writer.WriteHeader(http.StatusRequestTimeout)
+
+			/// 업로드 중 에러 발생시, 관련 파일 삭제
+		} else if responseHook.multipartuploadProcess < PORCESS_SIMPLE_MULTIPART_DONE {
+			uploadResult = "ABNORMAL_DISCONNECTION"
+			errorType = "WARN"
+			comment = comment + " : abnormal disconnected from the client " + strconv.Itoa(responseHook.multipartuploadProcess) + " "
+
+			responseHook.preHookError = c.Error(errors.New("ABNORMAL_DISCONNECTION"))
+			/// Removes temprorary directory on the abnormal disconnection.
+			if responseHook.temprorary_directory != "" {
+				err := os.RemoveAll(responseHook.temprorary_directory + "/")
+				if err != nil {
+					log.Println("[DEBUG] ["+c.Param("upload_key")+"] Remove a temprorary directory on the abnormal disconnection", err.Error()+" ", responseHook.temprorary_directory+"/", time.Now().Format(" [2006/01/02-15:04:05]"))
+				}
+
+			}
+		}
+
+		/// ERROR 발생시 삭제
+		if errorType == "ERROR" && responseHook.temprorary_directory != "" {
+			err := os.RemoveAll(responseHook.temprorary_directory + "/")
+			if err != nil {
+				log.Println("[DEBUG] ["+c.Param("upload_key")+"] Remove a temprorary directory", err.Error()+" ", responseHook.temprorary_directory+"/", time.Now().Format(" [2006/01/02-15:04:05]"))
+			}
+		}
+		statusCode := c.Writer.Status()
+		path := c.Request.URL.Path
+		end := time.Now()
+		latency := end.Sub(responseHook.preHookStartTime)
+
+		log.Println("\n")
+		log.Printf("[KUS][%s][STEP(13/13)] | %v | %s | %s | %d | %s | %d | %s | %s | %s | %s | %s | %d | %s | %s | %s | %s\n",
+			errorType,
+			end.Format("2006/01/02 - 15:04:05"),
+			clientIP,
+			clientType,
+			//latency.Nanoseconds()/1e6,
+			latency.Nanoseconds()/int64(time.Millisecond),
+			method,
+			statusCode,
+			uploadResult,
+			responseHook.desiredFileName,
+			responseHook.desiredPath,
+			desiredPath,
+			responseHook.file_name,
+			responseHook.file_size,
+			path,
+			comment,
+			time.Now().Format(" [2006/01/02-15:04:05]"),
+			c.Request.Header.Get("User-Agent"))
+		log.Println("\n")
+	}()
+
+	if true == up.webHook.EndHookEnable {
+		upload_file_key := c.Param("user1")
+		urlStr := up.webHook.EndHookAPI
+		data := url.Values{}
+
+		accepted := c.Request.Header.Get("accept")
+		if strings.Contains(accepted, "application/json") {
+			accepted = "application/json"
+		}
+
+		log.Println("[DEBUG] ", accepted)
+
+		data.Set("accept", accepted)
+		data.Set("content-type", c.Request.Header.Get("content-type"))
+		data.Set("upload_file_key", upload_file_key)
+		if responseHook.preHookError == nil {
+			/// OK ,
+			data.Add("upload_result", "1")
+		} else {
+			/// ERROR , 오류 전달
+			data.Add("upload_result", "0")
+			c.Writer.WriteHeader(http.StatusNotFound)
+		}
+
+		/// bypass parameters
+		/// body 'accept' 우선 함
+		for key, value := range responseHook.formHiddenValues {
+			if key == "accept" {
+				data.Set(key, value)
+			} else {
+				data.Add(key, value)
+			}
+
+		}
+		//data.Add("return_url",c.Request.FormValue("return_url"))
+		//data.Add("disable_alert",c.Request.FormValue("disable_alert"))
+		//data.Add("redirection_scope",c.Request.FormValue("redirection_scope"))
+		log.Println("[DEBUG][STEP(13/13)] ["+c.Param("upload_key")+"] user request and it will request to the php ", data, time.Now().Format(" [2006/01/02-15:04:05]"))
+
+		resp, err := http.PostForm(urlStr, data)
+		if err != nil {
+			log.Println("[ERROR] last Hooking "+err.Error(), c.Param("upload_key"), upload_file_key)
+			responseHook.preHookError = c.Error(err)
+			c.JSON(http.StatusNotFound, gin.H{"error": 1, "message": "End of WEB-hooking was failed "})
+			return
+		}
+
+		defer resp.Body.Close()
+
+		// last hooking 결과에 따른 output을 설정 한다.
+
+		contents, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Println("[ERROR] ["+c.Param("upload_key")+"] last Hooking "+err.Error(), c.Param("upload_key"), upload_file_key, time.Now().Format(" [2006/01/02-15:04:05]"))
+			responseHook.preHookError = c.Error(err)
+			c.JSON(http.StatusNotFound, gin.H{"error": 1, "message": "End of WEB-hooking was failed on the reading "})
+			return
+		}
+		log.Println("[INFO][STEP(13/13)] ["+c.Param("upload_key")+"] Result of last hook: "+urlStr, c.Param("upload_key"), upload_file_key, time.Now().Format(" [2006/01/02-15:04:05]"))
+		log.Println("[INFO][STEP(13/13)] ["+c.Param("upload_key")+"] Result of last hook: "+data.Encode(), c.Param("upload_key"), upload_file_key, time.Now().Format(" [2006/01/02-15:04:05]"))
+		//{"error":0,"message":"Successfully uploaded.","result":{"content_type":"text\/html","body":"<script>alert('Successfully uploaded.');<\/script>"}}
+
+		obj := endHookMessage{}
+
+		if err := json.Unmarshal(contents, &obj); err != nil {
+			log.Println("[ERROR] ["+c.Param("upload_key")+"] JSON Parsing Data  :  ", string(contents), time.Now().Format(" [2006/01/02-15:04:05]"))
+			log.Println("[ERROR] ["+c.Param("upload_key")+"] last Hooking,which was unable to parse JSON format,"+err.Error(), c.Param("upload_key"), upload_file_key, time.Now().Format(" [2006/01/02-15:04:05]"))
+			responseHook.preHookError = c.Error(err)
+		}
+
+		if 0 != obj.Error {
+			log.Println("[ERROR] ["+c.Param("upload_key")+"] User's last Hook API", c.Param("upload_key"), upload_file_key, time.Now().Format(" [2006/01/02-15:04:05]"))
+			return
+		}
+
+		log.Println("[DEBUG][STEP(13/13)] ["+c.Param("upload_key")+"] Result  ", obj.Result.Content_type, time.Now().Format(" [2006/01/02-15:04:05]"))
+		//
+		//Setting header
+		//
+		c.Writer.Header().Set("Server", "Catenoied upload service")
+
+		//
+		// 정상 업로드일 경우 cache 설정 : Browser 재진입 문제
+		//
+		if responseHook.multipartuploadProcess == PORCESS_SIMPLE_MULTIPART_FINISHED_REST {
+			log.Println("[DEBUG][STEP(13/13)] ["+c.Param("upload_key")+"] this upload porcess is OK", time.Now().Format(" [2006/01/02-15:04:05]"))
+			//cacheSince := time.Now().Format(http.TimeFormat)
+			//func (t Time) AddDate(years int, months int, days int) Time
+			cacheUntil := time.Now().AddDate(1, 0, 0).Format(http.TimeFormat)
+
+			//c.Writer.Header().Set("Cache-Control", "max-age:290304000, public")
+			//c.Writer.Header().Set("Last-Modified", cacheSince)
+			c.Writer.Header().Set("Expires", cacheUntil)
+		}
+		// 사용자 content-type 채크, 아래 케이스는 무조건 통과 시킴.
+		if obj.Result.Content_type == "text/html" {
+			log.Println("[DEBUG][STEP(13/13)] ["+c.Param("upload_key")+"] content-type ", obj.Result.Content_type, time.Now().Format(" [2006/01/02-15:04:05]"))
+			c.Writer.Header().Set("Server", "Catenoied upload service")
+			//c.Writer.Header().Del("content-type")
+			//c.Writer.Header().Set("content-type", resp.Header.Get("content-type"))
+			c.Writer.Header().Set("content-type", obj.Result.Content_type)
+			fmt.Fprint(c.Writer, obj.Result.Body)
+			return
+		}
+		// 사용자가 content-type application 인 경우 처리
+		// process status 변경
+		if responseHook.multipartuploadProcess < PORCESS_SIMPLE_MULTIPART_FINISHED_REST {
+			c.Writer.WriteHeader(http.StatusNotFound)
+			//c.Writer.Header().Set("content-type", obj.Result.Content_type)
+			c.Writer.Header().Set("content-type", c.Request.Header.Get("accept"))
+			fmt.Fprint(c.Writer, "{\"error\": 1, \"message\": \"User request was expired.\"}")
+			c.Writer.Flush()
+
+			return
+		}
+
+		// issue #47
+		if responseHook.multipartuploadProcess == PORCESS_SIMPLE_MULTIPART_FILE_CP_ERROR {
+			c.Writer.WriteHeader(http.StatusBadRequest)
+			c.Writer.Header().Set("content-type", c.Request.Header.Get("accept"))
+			//fmt.Fprint(c.Writer, "{\"error\": 1, \"message\": \"Bad file requested \"}")
+			fmt.Fprintf(c.Writer, "{\"error\": 1, \"message\": \"%s \"}", responseHook.last_message)
+			c.Writer.Flush()
+
+			return
+		}
+
+		c.Writer.Header().Set("content-type", obj.Result.Content_type)
+		fmt.Fprint(c.Writer, obj.Result.Body)
+		return
+	}
+	return
 }
