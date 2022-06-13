@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -843,4 +844,291 @@ func (up *UploadHandler) endWebHook(c *gin.Context, responseHook *CtxResponseWeb
 		return
 	}
 	return
+}
+
+func (up *UploadHandler) GetUploadingProgress(c *gin.Context) {
+	rw := c.Writer
+	rw.Header().Set("Server", "Catenoied upload service")
+	rw.Header().Set("Content-Type", "application/json")
+
+	upload_key := c.Param("upload_key")
+	if 0 == len(upload_key) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": 1, "message": "invalied upload_key"})
+		return
+	}
+	//redisExist, err := up.redisClient.Exists(upload_key).Result()
+	//if err != nil || redisExist == 0 {
+	//	c.JSON(http.StatusNotFound, gin.H{"error": 1, "message": "Upload_key does not exist."})
+	//	return
+	//}
+	redisRes, err := up.redisClient.HMGet(upload_key, "s").Result()
+	if redisRes[0] == nil || err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": 1, "message": "Upload_key does not exist."})
+		return
+	}
+	/// please use this tool  !!! http://json2struct.mervine.net/
+
+	var msg struct {
+		Error   int    `json:"error"`
+		Message string `json:"message"`
+		Result  struct {
+			Progress int `json:"progress"`
+		} `json:"result"`
+	}
+
+	RedisProgress, _ := strconv.Atoi(redisRes[0].(string))
+	msg.Error = 0
+	msg.Message = "OK"
+	msg.Result.Progress = RedisProgress
+	c.JSON(http.StatusOK, msg)
+}
+
+func (up *UploadHandler) UploadMultiPartsPassThrough(c *gin.Context) {
+
+	req := c.Request
+
+	///
+	/// END hook process
+	//var ctxResponseWebHook *CtxResponseWebHook;
+	//마지막 훅이 호출 될때까지의 context 입니다.
+	ctxResponseWebHook := CtxResponseWebHook{"", "", 200, nil, "", "", "1", "", "", time.Now(), "", 0, "", make(map[string]string), "", 0, ""}
+
+	upload_key := c.Param("upload_key")
+	profile_key := c.Param("profile_key")
+	encryption_key := c.Param("encryption_key")
+	category_key := c.Param("category_key")
+	access_token := c.Param("access_token")
+
+	// 추가 트랜스코딩 관련 추가
+	trProfileKeys := c.Param("tr_profile_key")
+
+	log.Println("[INFO][STEP(4/13)] ["+upload_key+"] UploadMultiPartsPassThrough, ", upload_key, " , ", profile_key, " , ", category_key, " , ", access_token, " , ", c.Param("user1"), encryption_key, req, time.Now().Format(" [2006/01/02-15:04:05]"))
+	if 0 == len(upload_key) || 0 == len(profile_key) || 0 == len(access_token) {
+		log.Println("[ERROR] ["+upload_key+"] Bad request,at the UploadMultiPartsPassThrough ", upload_key, " , ", profile_key, time.Now().Format(" [2006/01/02-15:04:05]"))
+		ctxResponseWebHook.preHookError = c.Error(errors.New("invalied key name , 'upload_key' or 'profile_key' "))
+		//c.JSON(http.StatusNotFound,gin.H{ "upload_key": "nil","desc":"invalied key name","status": http.StatusNotFound})
+		return
+	}
+	//s1 := strings.Split(profile_key, "-")
+	AccessToken, err := up.GetAccessToken(upload_key, access_token)
+	if err != nil {
+		log.Println("[ERROR] ["+upload_key+"] get access token api error, ", upload_key, err, time.Now().Format(" [2006/01/02-15:04:05]"))
+		ctxResponseWebHook.preHookError = c.Error(errors.New("Get access token api error."))
+		//c.JSON(http.StatusNotFound,gin.H{ "upload_key": "nil","desc":"invalied key name","status": http.StatusNotFound})
+		return
+	}
+	desiredPath := AccessToken
+	defer up.endWebHook(c, &ctxResponseWebHook, desiredPath)
+
+	ctxResponseWebHook.upload_key = upload_key
+	if exist, errRedis := up.redisClient.Exists(upload_key).Result(); exist != 1 || errRedis != nil {
+		redisRes, errr := up.redisClient.TTL(upload_key).Result()
+		log.Println("[INFO] ["+upload_key+"] TTL ", redisRes, errr, time.Now().Format(" [2006/01/02-15:04:05]"))
+		log.Println("[INFO] ["+upload_key+"] User tried connection with an invalid upload_key, check your redis server which has the key as : ", upload_key, exist, errRedis, time.Now().Format(" [2006/01/02-15:04:05]"))
+		log.Println("[ERROR] ["+upload_key+"] The upload_key has already been uploaded or does not exist. ", upload_key, time.Now().Format(" [2006/01/02-15:04:05]"))
+		ctxResponseWebHook.preHookError = c.Error(errors.New("[WARN] OK, User tried connection with an invalid upload_key"))
+		return
+	}
+
+	_, err = up.redisClient.HMGet(upload_key, "d", "u").Result()
+	if err != nil {
+		log.Println("[ERROR] ["+upload_key+"] invalid key-name with the HMGET commands : ", upload_key, err, time.Now().Format(" [2006/01/02-15:04:05]"))
+		ctxResponseWebHook.preHookError = c.Error(errors.New("Invalid key-name with the HMGET commands."))
+		//c.JSON(http.StatusNotFound,gin.H{ "upload_key": "nil","desc":"invalied key name","status": http.StatusNotFound})
+		return
+	}
+	length := req.ContentLength
+	if length <= 0 {
+		log.Println("[ERROR] ["+upload_key+"] Bad request,at the UploadMultiParts", time.Now().Format(" [2006/01/02-15:04:05]"))
+		ctxResponseWebHook.preHookError = c.Error(errors.New("File contentes lenght 0 or negative"))
+		//c.String(http.StatusInternalServerError,FMT_ERROR0,"true","Bad request","n","null","0");
+		return
+	}
+
+	mr, err := req.MultipartReader()
+	if err != nil {
+		log.Println("[ERROR] ["+upload_key+"] "+err.Error(), upload_key, time.Now().Format(" [2006/01/02-15:04:05]"))
+		ctxResponseWebHook.preHookError = c.Error(err)
+		return
+	}
+
+	var CountOfMultipartsFiles uint32 = 0
+
+	// uploadOptions을 struct에 정의
+	uploadOptions := &UploadOptions{
+		profileKey:    profile_key,
+		encryptionKey: encryption_key,
+		categoryKey:   category_key,
+		desiredPath:   desiredPath,
+		trProfileKeys: trProfileKeys,
+		uploadFileKey: c.Param("user1"),
+	}
+
+	for {
+		part, err := mr.NextPart()
+
+		// 그외 에러 처리 루틴 추가(2018. 09. 13 kw.cho)
+		if err == io.EOF || err != nil {
+			//log.Println("[DEBUG] exit part");
+			if nil != part {
+				part.Close()
+			}
+			if err != io.EOF {
+				log.Println("[ERROR] ["+upload_key+"] UploadMultiParts NextPart "+err.Error(), time.Now().Format(" [2006/01/02-15:04:05]"))
+			}
+			break
+		}
+
+		//issue #55
+		if part != nil && part.FormName() == "accept" {
+			buf := new(bytes.Buffer)
+			buf.ReadFrom(part)
+			log.Println("[INFO] ["+upload_key+"] accept is: ", buf.String(), time.Now().Format(" [2006/01/02-15:04:05]"))
+			ctxResponseWebHook.formHiddenValues["accept"] = buf.String()
+		}
+
+		if part != nil && part.FormName() == "return_url" {
+			buf := new(bytes.Buffer)
+			buf.ReadFrom(part)
+			log.Println("[INFO] ["+upload_key+"] return_url is: ", buf.String(), time.Now().Format(" [2006/01/02-15:04:05]"))
+			ctxResponseWebHook.formHiddenValues["return_url"] = buf.String()
+		}
+
+		if part != nil && part.FormName() == "disable_alert" {
+			buf := new(bytes.Buffer)
+			buf.ReadFrom(part)
+			log.Println("[INFO] ["+upload_key+"] disable_alert is: ", buf.String(), time.Now().Format(" [2006/01/02-15:04:05]"))
+			ctxResponseWebHook.formHiddenValues["disable_alert"] = buf.String()
+		}
+
+		if part != nil && part.FormName() == "redirection_scope" {
+			buf := new(bytes.Buffer)
+			buf.ReadFrom(part)
+			log.Println("[INFO] ["+upload_key+"] redirection_scope is: ", buf.String(), time.Now().Format(" [2006/01/02-15:04:05]"))
+			ctxResponseWebHook.formHiddenValues["redirection_scope"] = buf.String()
+		}
+		/// Kollus 에서 file field 네임을 upload-file 로 fix 함.
+		/// Form 영역에서 upload-file은 한번만 처리함. "CountOfMultipartsFiles have to be 0"
+		// issue #51
+		if part != nil && len(part.FileName()) > 0 && FORM_FILE_NAME == part.FormName() && 0 == CountOfMultipartsFiles {
+
+			err := up.UploadMultiPartsFileCopy(
+				req.ContentLength, part,
+				&ctxResponseWebHook, c,
+				up.webHook.ContentsPassthroughPath, uploadOptions,
+				true)
+			if err != nil && err.Error() != "EOF" {
+				ctxResponseWebHook.multipartuploadProcess = PORCESS_SIMPLE_MULTIPART_FILE_CP_ERROR
+				ctxResponseWebHook.last_message = err.Error()
+				//issue #55
+				//return
+			}
+			CountOfMultipartsFiles++
+			ctxResponseWebHook.multipartuploadProcess = PORCESS_SIMPLE_MULTIPART_FINISHED_REST
+		}
+
+	} //multi part block
+}
+
+//func (up *UploadHandler)SgHandleFilePut(rw http.ResponseWriter, req *http.Request) {
+func (up *UploadHandler) UploadFileChunk(c *gin.Context) {
+
+	upload_key := c.Param("upload_key")
+	offset := c.Param("offset")
+	req := c.Request
+	rw := c.Writer
+
+	if origin := req.Header.Get("Origin"); origin != "" {
+		rw.Header().Set("Access-Control-Allow-Origin", origin)
+		//rw.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+		rw.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT")
+		//rw.Header().Set("Access-Control-Allow-Headers",
+		//    "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+	}
+	// Stop here if its Preflighted OPTIONS request
+	if req.Method == "OPTIONS" {
+		return
+	}
+
+	defer req.Body.Close()
+
+	if "" == upload_key || "" == offset {
+		c.JSON(http.StatusNotFound, gin.H{"desc": "Invalid keys", "status": http.StatusNotFound})
+		return
+	}
+
+	var (
+		sess *assembler.Session
+		err  error
+	)
+
+	sess = up.fileAssembler.GetSession(upload_key)
+	if sess == nil {
+		c.JSON(http.StatusNotFound, gin.H{"desc": "Invalid the file_key", "status": http.StatusNotFound})
+		//sendHttpResponse(rw, HttpResp{code: http.StatusNotFound})
+		return
+	}
+
+	///
+	/// 현재 offset(io written) 과 일치 않을시 서버의 진행중인 offset 전송
+	///
+	if sess.GetOffsetStr() != offset {
+		c.JSON(http.StatusBadRequest, gin.H{"desc": "offset not matched", "upload_key": upload_key, "status": http.StatusBadRequest})
+		return
+	}
+
+	//log.Println("[DEBUG] requested PUT")
+	if err = sess.Put(req.Body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"desc": "append error " + err.Error(), "status": http.StatusBadRequest})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"desc": "OK", "upload_key": upload_key, "status": http.StatusOK})
+}
+
+//func (up *UploadHandler)SgHandleCommit(rw http.ResponseWriter, req *http.Request) {
+func (up *UploadHandler) UploadChunkCommit(c *gin.Context) {
+	upload_key := c.Param("upload_key")
+	sess := up.fileAssembler.GetSession(upload_key)
+	fileName := c.Param("fileName")
+
+	req := c.Request
+	rw := c.Writer
+	if origin := req.Header.Get("Origin"); origin != "" {
+		rw.Header().Set("Access-Control-Allow-Origin", origin)
+		//rw.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+		rw.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT")
+		//rw.Header().Set("Access-Control-Allow-Headers",
+		//    "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+	}
+	// Stop here if its Preflighted OPTIONS request
+	if req.Method == "OPTIONS" {
+		return
+	}
+
+	if "" == upload_key || "" == fileName {
+		c.JSON(http.StatusNotFound, gin.H{"desc": "Invalid keys", "status": http.StatusNotFound})
+		return
+	}
+
+	if sess == nil {
+		c.JSON(http.StatusNotFound, gin.H{"desc": "session not found,(expired)", "status": http.StatusNotFound})
+		return
+	}
+
+	fpath := path.Join(up.fileAssembler.GetPath()+"/SG_"+upload_key, fileName)
+	if err := os.MkdirAll(up.fileAssembler.GetPath()+"/SG_"+upload_key, 0755); nil != err {
+		c.JSON(http.StatusInternalServerError, gin.H{"desc": "Denied permission ", "upload_key": upload_key, "file_name": fileName, "status": http.StatusInternalServerError})
+		return
+	}
+
+	if err := sess.Commit(fpath); err != nil {
+		log.Println("[ERROR] Commit:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"desc": "cmmit error", "upload_key": upload_key, "file_name": fileName, "status": http.StatusInternalServerError})
+		return
+	} else {
+		up.fileAssembler.CleanupSession(sess.GetID())
+		log.Printf("[INFO] Session %s closed\n", sess.GetID())
+		c.JSON(http.StatusOK, gin.H{"desc": "OK", "upload_key": upload_key, "file_name": fileName, "status": http.StatusOK})
+	}
 }

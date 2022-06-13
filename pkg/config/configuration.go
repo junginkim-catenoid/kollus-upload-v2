@@ -73,7 +73,7 @@ func init() {
 		os.Setenv("KUS_UPLOAD_HOST", "127.0.0.1")
 	}
 	if os.Getenv("KUS_UPLOAD_PORT") == "" {
-		os.Setenv("KUS_UPLOAD_PORT", "3001")
+		os.Setenv("KUS_UPLOAD_PORT", "3000")
 	}
 
 	if os.Getenv("KUS_LOG_PATH") == "" {
@@ -95,7 +95,10 @@ func init() {
 		println("KUS_PRODUCTION_MODE : DEBUG")
 		os.Setenv("KUS_PROCESS_UID", strconv.Itoa(os.Getuid()))
 		os.Setenv("KUS_PROCESS_GID", strconv.Itoa(os.Getgid()))
-		//os.Setenv("KUS_PRE_H_ENABLE", "true")
+
+		os.Setenv("KUS_PRE_H_ENABLE", "true")
+		os.Setenv("KUS_END_H_ENABLE", "true")
+
 		os.Setenv("KUS_LOG_PATH", "/home/kollus/kollus-upload-v2/log")
 		os.Setenv("KUS_CONTENTS_PATH", "/home/kollus/kollus-upload-v2/http_upload")
 		os.Setenv("KUS_CONTENTS_PASSTHROUGH_PATH", "/home/kollus/kollus-upload-v2/http_upload_passthrough")
@@ -183,15 +186,15 @@ func init() {
 	//if os.Getenv("KUS_OAUTH_TOKEN_API") == "" {
 	//	os.Setenv("KUS_OAUTH_TOKEN_API", "https://vod-stage-kr.kollus.com/oauth/token")
 	//}
-	//if os.Getenv("KUS_OAUTH_CLIENT_ID") == "" {
-	//	os.Setenv("KUS_OAUTH_CLIENT_ID", "69")
-	//}
-	//if os.Getenv("KUS_OAUTH_CLIENT_SECRET") == "" {
-	//	os.Setenv("KUS_OAUTH_CLIENT_SECRET", "PSTul9hfIWnM77LYOjBxtV01B3xcGoVEqPSRJ0nh")
-	//}
-	//if os.Getenv("KUS_OAUTH_SCOPE") == "" {
-	//	os.Setenv("KUS_OAUTH_SCOPE", "vod:uploader")
-	//}
+	if os.Getenv("KUS_OAUTH_CLIENT_ID") == "" {
+		os.Setenv("KUS_OAUTH_CLIENT_ID", "69")
+	}
+	if os.Getenv("KUS_OAUTH_CLIENT_SECRET") == "" {
+		os.Setenv("KUS_OAUTH_CLIENT_SECRET", "PSTul9hfIWnM77LYOjBxtV01B3xcGoVEqPSRJ0nh")
+	}
+	if os.Getenv("KUS_OAUTH_SCOPE") == "" {
+		os.Setenv("KUS_OAUTH_SCOPE", "vod:uploader")
+	}
 	//if os.Getenv("KUS_OAUTH_CATEGORY_API") == "" {
 	//	os.Setenv("KUS_OAUTH_CATEGORY_API", "https://vod-stage-kr.kollus.com/api/v1/vod/upload/categories")
 	//}

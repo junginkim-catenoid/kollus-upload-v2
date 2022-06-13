@@ -41,3 +41,11 @@ type endHookResult struct {
 	Content_type string
 	Body         string
 }
+
+type accessTokenMessage struct {
+	Result accessTokenResult
+}
+
+type accessTokenResult struct {
+	Key string
+}

@@ -156,9 +156,39 @@ func startServer(conf *config.Configuration) error {
 	v1 := gMux.Group("api/v1")
 	{
 		v1.Use(cors.CorsheaderMiddleware(cors.Options{}))
+		//issue #62, kollus office용 create_url api 추가
 		v1.POST("/create_url", handler.CreateKollusOneTimeURL)
+
 		v1.POST("/CreateUploadSession/:expTime/:uploadType", handler.CreateUploadSession)
+
+		// Upload multipart formats
 		v1.POST("/UploadMultiParts/:upload_key/:user1", handler.UploadMultiParts)
+		v1.POST("/UploadMultiParts2/:upload_key/:user1/:encryption_key", handler.UploadMultiParts)
+
+		// Multi part 업로드시 OPTION method 추가 #31
+		v1.OPTIONS("/UploadMultiParts/:upload_key/:user1", handler.UploadMultiParts)
+		v1.OPTIONS("/UploadMultiParts2/:upload_key/:user1/:encryption_key", handler.UploadMultiParts)
+
+		// File to Live 사용시 사용
+		v1.POST("/UploadMultiParts/:upload_key/:user1/:profile_key", handler.UploadMultiParts)
+		v1.POST("/UploadMultiParts2/:upload_key/:user1/:encryption_key/:profile_key", handler.UploadMultiParts)
+
+		// File to Live 사용시 사용[OPTION METHODE]
+		v1.OPTIONS("/UploadMultiParts/:upload_key/:user1/:profile_key", handler.UploadMultiParts)
+		v1.OPTIONS("/UploadMultiParts2/:upload_key/:user1/:encryption_key/:profile_key", handler.UploadMultiParts)
+
+		// 업로드 중인 파일의 진행률 표기
+		v1.GET("/GetUploadingProgress/:upload_key", handler.GetUploadingProgress)
+
+		// passthrough upload
+		v1.POST("/UploadMultiParts/:upload_key/:user1/:profile_key/:encryption_key/:category_key/:access_token", handler.UploadMultiPartsPassThrough)
+		v1.OPTIONS("/UploadMultiParts/:upload_key/:user1/:profile_key/:encryption_key/:category_key/:access_token/:tr_profile_key", handler.UploadMultiPartsPassThrough)
+
+		/// Upload_key retrived from the "CreateUploadSession"
+		/// File_key is specific key for HTML5 client.
+		v1.PUT("/UploadFileChunk/:upload_key/:offset", handler.UploadFileChunk)
+
+		v1.POST("/UploadChunkCommit/:upload_key/:fileName", handler.UploadChunkCommit)
 	}
 
 	gMux.StaticFile("/crossdomain.xml", KUS_STATICFILES_PATH+"/crossdomain.xml")

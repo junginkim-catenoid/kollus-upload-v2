@@ -1,6 +1,8 @@
 package assembler
 
 import (
+	"fmt"
+	"io"
 	"log"
 	"os"
 	"path"
@@ -13,6 +15,98 @@ type FileAssembler struct {
 	sessions    []*Session
 	_mutex      sync.Mutex
 }
+
+func NewFileAssembler(storagePath string) *FileAssembler {
+	// Create on the heap
+	return &FileAssembler{contentPath: storagePath}
+}
+
+func (fa *FileAssembler) GetSessions() []*Session {
+	return fa.sessions
+}
+
+/// Creates session after constructor of the NewFileAssembler
+func (fa *FileAssembler) CreateSession(upload_Key string) (*Session, error) {
+
+	obj := NewSession(fa.contentPath)
+
+	{
+		fa._mutex.Lock()
+		defer fa._mutex.Unlock()
+		if err := obj.initSession(upload_Key); err != nil {
+			return nil, err
+		}
+		fa.sessions = append(fa.sessions, obj)
+	}
+	return obj, nil
+}
+
+func (fa *FileAssembler) SyncAbnormalCleanupSession(upload_Key string) error {
+	i, se := fa.findSession(upload_Key)
+
+	if i >= 0 {
+		fa._mutex.Lock()
+		defer fa._mutex.Unlock()
+
+		if err := se.Cleanup(); err != nil {
+			return err
+		}
+
+		fa.sessions[i] = fa.sessions[len(fa.sessions)-1]
+		fa.sessions[len(fa.sessions)-1] = nil
+		fa.sessions = fa.sessions[:len(fa.sessions)-1]
+	}
+
+	return nil
+
+}
+
+func (fa *FileAssembler) GetPath() string {
+	return fa.contentPath
+}
+
+func (fa *FileAssembler) CleanupSession(upload_Key string) {
+	i, _ := fa.findSession(upload_Key)
+
+	if i >= 0 {
+		fa.sessions[i] = fa.sessions[len(fa.sessions)-1]
+		fa.sessions[len(fa.sessions)-1] = nil
+		fa.sessions = fa.sessions[:len(fa.sessions)-1]
+	}
+}
+
+// findSession searches session list and returns found session
+// and its index in the list.
+func (fa *FileAssembler) findsession(id string) (int, *Session) {
+	for i, sess := range fa.sessions {
+		if sess.id == id {
+			return i, sess
+		}
+	}
+	return -1, nil
+}
+
+// Session returns a session associated with id.
+// do use capitals.
+func (fa *FileAssembler) GetSession(id string) *Session {
+	_, sess := fa.findSession(id)
+	return sess
+}
+
+/// findSession searches session list and returns found session
+/// and its index in the list.
+func (fa *FileAssembler) findSession(id string) (int, *Session) {
+	for i, sess := range fa.sessions {
+		if sess.id == id {
+			return i, sess
+		}
+	}
+	return -1, nil
+}
+
+///
+/// Session CLASS
+///
 
 type Session struct {
 	id string
@@ -37,29 +131,21 @@ type Session struct {
 	rootPath string
 }
 
-func NewFileAssembler(storagePath string) *FileAssembler {
-	// Create on the heap
-	return &FileAssembler{contentPath: storagePath}
-}
-
 func NewSession(rootPath string) *Session {
 	return &Session{rootPath: rootPath}
 }
 
-/// Creates session after constructor of the NewFileAssembler
-func (fa *FileAssembler) CreateSession(upload_Key string) (*Session, error) {
+func (se *Session) GetID() string {
+	return se.id
+}
 
-	obj := NewSession(fa.contentPath)
+func (se *Session) GetOffset() int64 {
+	return se.offset
+}
 
-	{
-		fa._mutex.Lock()
-		defer fa._mutex.Unlock()
-		if err := obj.initSession(upload_Key); err != nil {
-			return nil, err
-		}
-		fa.sessions = append(fa.sessions, obj)
-	}
-	return obj, nil
+// OffsetStr returns string representation of Offset.
+func (se *Session) GetOffsetStr() string {
+	return fmt.Sprintf("%d", se.offset)
 }
 
 func (se *Session) initSession(upload_Key string) error {
@@ -78,21 +164,71 @@ func (se *Session) initSession(upload_Key string) error {
 	return nil
 }
 
-func (fa *FileAssembler) CleanupSession(upload_Key string) {
-	i, _ := fa.findSession(upload_Key)
+// Put writes a file chunk to disk in a separate file.
+func (se *Session) Put(chunk io.Reader) error {
+	tmppath := path.Join(se.path, fmt.Sprintf("%d.tmp", se.offset))
+	chunkpath := path.Join(se.path, fmt.Sprintf("%d.chunk", se.offset))
 
-	if i >= 0 {
-		fa.sessions[i] = fa.sessions[len(fa.sessions)-1]
-		fa.sessions[len(fa.sessions)-1] = nil
-		fa.sessions = fa.sessions[:len(fa.sessions)-1]
+	if err := se.write(tmppath, chunk); err != nil {
+		log.Println("[ERROR] write" + tmppath + "  " + chunkpath + " " + err.Error())
+		return err
 	}
+
+	/// replace name to chunk
+	if err := os.Rename(tmppath, chunkpath); err != nil {
+		log.Println("[ERROR] Rename  " + tmppath + "  " + chunkpath + " " + err.Error())
+		return err
+	}
+
+	se.chunks = append(se.chunks, chunkpath)
+	return nil
 }
 
-func (fa *FileAssembler) findSession(id string) (int, *Session) {
-	for i, sess := range fa.sessions {
-		if sess.id == id {
-			return i, sess
+//
+
+func (se *Session) write(fpath string, data io.Reader) error {
+	if file, err := os.Create(fpath); err != nil {
+		return err
+	} else {
+		defer file.Close()
+
+		if n, err := io.Copy(file, data); err != nil {
+			return err
+		} else {
+			se.offset += int64(n)
 		}
 	}
-	return -1, nil
+	return nil
+}
+
+func (se *Session) Cleanup() error {
+	return os.RemoveAll(se.path)
+}
+
+// Commit finishes an upload session by combining all its chunk into
+// final destination file.
+func (se *Session) Commit(filepath string) error {
+	dst, err := os.OpenFile(filepath, os.O_CREATE|os.O_TRUNC|os.O_APPEND|os.O_WRONLY, 0755)
+
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+
+	for _, chunk := range se.chunks {
+		if file, err := os.Open(chunk); err != nil {
+			return err
+		} else {
+			io.Copy(dst, file)
+			if err := file.Close(); err != nil {
+				return err
+			}
+		}
+	}
+
+	if err := se.Cleanup(); err != nil {
+		return err
+	}
+
+	return nil
 }

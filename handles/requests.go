@@ -237,3 +237,29 @@ func (up *UploadHandler) GetCategoryPath(c *gin.Context, upload_key string, cate
 	}
 	return obj.Data.Level_Path, nil
 }
+
+func (up *UploadHandler) GetAccessToken(upload_key string, access_token string) (string, error) {
+	AccessTokenUrl := up.webHook.GetAccessTokenAPI + access_token
+	resp, err := http.Get(AccessTokenUrl)
+	if err != nil {
+		log.Println("[ERROR] ["+upload_key+"] Get Access token, "+err.Error(), time.Now().Format(" [2006/01/02-15:04:05]"))
+		return "", err
+	} else if resp.StatusCode != http.StatusOK {
+		log.Println("[ERROR] ["+upload_key+"] Get Access token statusCode != 200, "+err.Error(), time.Now().Format(" [2006/01/02-15:04:05]"))
+		return "", err
+	}
+	defer resp.Body.Close()
+	contents, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Println("[ERROR] ["+upload_key+"] Get Access token body err,"+err.Error(), time.Now().Format(" [2006/01/02-15:04:05]"))
+		return "", err
+	}
+
+	obj := accessTokenMessage{}
+	if err := json.Unmarshal(contents, &obj); err != nil {
+		log.Println("[ERROR] ["+upload_key+"] Get Access token json parser err."+err.Error(), time.Now().Format(" [2006/01/02-15:04:05]"))
+		return "", err
+	}
+
+	return obj.Result.Key, nil
+}
