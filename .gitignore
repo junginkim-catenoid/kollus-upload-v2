@@ -18,3 +18,6 @@ tmp/
 
 # bin
 bin
+
+# pid
+main

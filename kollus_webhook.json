@@ -1,0 +1,32 @@
+{"object":
+{
+  "buffer_size": 10,
+  "hooks": [
+    {
+      "enable": true,
+      "name": "kollus_api",
+      "url": "http://api.kr.kollus.com",
+      "user": "",
+      "pass": "",
+      "sync": true,
+      "pre_hook": {
+        "enable": true,
+        "name": "startHookAPI",
+        "postType":"PostForm",
+        "content_type":"x-www-form-urlencode",
+        "method": "POST",
+        "api": "/0/media_auth/upload/begin_upload.json?access_token=u1sd7p0hpoz712x1"
+      },
+      "end_hook":{
+        "enable": true,
+        "name": "endHookAPI",
+        "postType":"PostForm",
+        "content_type":"x-www-form-urlencode",
+        "method": "POST",
+        "api": "/0/media_auth/upload/complete_upload.json?access_token=u1sd7p0hpoz712x1"
+      }
+    }
+  ]
+}
+}
+
