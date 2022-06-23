@@ -41,4 +41,4 @@ VOLUME ["/tmp/contents"]
 
 CMD ./main
 
-EXPOSE 4242
+EXPOSE 3000

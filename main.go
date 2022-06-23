@@ -3,6 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis"
+
+	"gopkg.in/natefinch/lumberjack.v2"
 	"gopkg.in/tylerb/graceful.v1"
 	"io/ioutil"
 	"kollus-upload-v2/cors"
@@ -16,10 +20,6 @@ import (
 	"runtime"
 	"strconv"
 	"time"
-
-	"github.com/gin-gonic/gin"
-	"github.com/go-redis/redis"
-	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 const APP_VERSION = "1.3.6"

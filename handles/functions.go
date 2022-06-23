@@ -21,7 +21,7 @@ import (
 // uid : redis session를 구분하는데 사용함.
 // uploadtype : f -> post type
 // expired time : 0분 < max < 6시간
-func (up *UploadHandler) redisUploadSession(expTime int, uploadType string, uid string) error {
+func (up *UploadHandler) redisUploadSession(c *gin.Context, expTime int, uploadType string, uid string) error {
 
 	// prefix 추가
 	upload_key := uid
@@ -178,7 +178,7 @@ func (up *UploadHandler) UploadMultiPartsFileCopy(
 		} else {
 			OAToken, err := up.OAuthToken(uploadContext)
 			if OAToken != "" && err == nil {
-				CategoryPath, err := up.GetCategoryPath(c, uploadContext.upload_key, uo.categoryKey, OAToken)
+				CategoryPath, err := up.GetCategoryPath(uploadContext.upload_key, uo.categoryKey, OAToken)
 				if CategoryPath != "" && err == nil {
 					categoryName = CategoryPath
 				} else {

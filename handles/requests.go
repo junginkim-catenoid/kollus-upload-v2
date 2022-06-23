@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -23,7 +22,7 @@ type kollusMessage struct {
 	} `json:"result,omitempty"`
 }
 
-func (up *UploadHandler) GetAudioProfile(c *gin.Context, kusSessionID string) int {
+func (up *UploadHandler) GetAudioProfile(kusSessionID string) int {
 
 	resp, err := http.Get(up.webHook.ProfileKeyAPI + up.accessToken)
 	if err != nil {
@@ -66,7 +65,7 @@ func (up *UploadHandler) GetAudioProfile(c *gin.Context, kusSessionID string) in
 	return 0
 }
 
-func (up *UploadHandler) GetProfile(c *gin.Context, kusSessionID string, profileKey string) int {
+func (up *UploadHandler) GetProfile(kusSessionID string, profileKey string) int {
 	resp, err := http.Get(up.webHook.ProfileKeyAPI + up.accessToken)
 	if err != nil {
 		log.Println("[ERROR] ["+kusSessionID+"] GetDupKey get err = ,"+err.Error(), time.Now().Format(" [2006/01/02-15:04:05]"))
@@ -206,7 +205,7 @@ func (up *UploadHandler) OAuthTokenAPI(upload_key string) (string, error) {
 	return obj.AccessToken, nil
 }
 
-func (up *UploadHandler) GetCategoryPath(c *gin.Context, upload_key string, category_key string, OAuthToken string) (string, error) {
+func (up *UploadHandler) GetCategoryPath(upload_key string, category_key string, OAuthToken string) (string, error) {
 	OAuthTokenUrl := up.webHook.OAuthCategoryAPI
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", OAuthTokenUrl+"/"+category_key, nil)

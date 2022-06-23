@@ -155,7 +155,7 @@ func (up *UploadHandler) CreateKollusOneTimeURL(c *gin.Context) {
 		up.accessToken = accessToken
 	}
 	if isAudioFile == "1" {
-		if up.GetAudioProfile(c, kusSessionID) != 1 {
+		if up.GetAudioProfile(kusSessionID) != 1 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "1", "message:": "The Audio profile key does not exist."})
 			return
 		}
@@ -179,7 +179,7 @@ func (up *UploadHandler) CreateKollusOneTimeURL(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "1", "message:": "The profile key does not exist."})
 			return
 		}
-		if up.GetProfile(c, kusSessionID, profileKey) != 1 {
+		if up.GetProfile(kusSessionID, profileKey) != 1 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "1", "message:": "The profile key does not match."})
 			return
 		}
@@ -217,7 +217,7 @@ func (up *UploadHandler) CreateKollusOneTimeURL(c *gin.Context) {
 		return
 	}
 
-	err = up.redisUploadSession(expireTimeNum, "n", kusSessionID)
+	err = up.redisUploadSession(c, expireTimeNum, "n", kusSessionID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "1", "message:": "failed to create upload session, " + err.Error()})
 		return
